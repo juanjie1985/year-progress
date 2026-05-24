@@ -1,13 +1,51 @@
-name: Year Progress
+name: daily
 on:
+  workflow_dispatch:
   schedule:
-    - cron: '0 1 * * *'  # 每天北京时间 9:00 自动运行
-  workflow_dispatch:        # 支持手动测试
+    - cron: '0 0 * * *'
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - run: python year_progress.py
+      - name: send to feishu
         env:
-          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+        run: |
+          python3 << 'EOF'
+          import datetime, urllib.request, json, os
+          tz = datetime.timezone(datetime.timedelta(hours=8))
+          now = datetime.datetime.now(tz)
+          year = now.year
+          start = datetime.datetime(year, 1, 1, tzinfo=tz)
+          end = datetime.datetime(year + 1, 1, 1, tzinfo=tz)
+          pct = (now - start).total_seconds() / (end - start).total_seconds() * 100
+          length = 25
+          filled = round(pct * length / 100)
+          bar = '█' * filled + '░' * (length - filled)
+          days_passed = (now - start).days
+          days_left = (end - start).days - days_passed
+          card = {
+              "msg_type": "interactive",
+              "card": {
+                  "header": {
+                      "title": {"tag": "plain_text", "content": f"🌟 {year} 年进度"},
+                      "template": "green"
+                  },
+                  "elements": [
+                      {"tag": "div", "text": {"tag": "lark_md", "content": f"**已过去 {pct:.1f}%**"}},
+                      {"tag": "div", "text": {"tag": "lark_md", "content": f"`{bar}`"}},
+                      {"tag": "hr"},
+                      {"tag": "note", "elements": [
+                          {"tag": "plain_text", "content": f"📅 已过 {days_passed} 天 · 还剩 {days_left} 天"}
+                      ]}
+                  ]
+              }
+          }
+          payload = json.dumps(card).encode()
+          req = urllib.request.Request(
+              os.environ['WEBHOOK'],
+              data=payload,
+              headers={'Content-Type': 'application/json'}
+          )
+          print(urllib.request.urlopen(req).read().decode())
+          EOF
