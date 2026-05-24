@@ -7,24 +7,49 @@ jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - name: send to feishu
+      - name: restore last percentage
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: .last_pct
+          key: last-pct-${{ github.run_id }}
+          restore-keys: |
+            last-pct-
+
+      - name: send to feishu if percentage changed
         env:
           WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
         run: |
           python3 << 'EOF'
-          import datetime, urllib.request, json, os
+          import datetime, urllib.request, json, os, pathlib
 
           tz = datetime.timezone(datetime.timedelta(hours=8))
           now = datetime.datetime.now(tz)
           year = now.year
           start = datetime.datetime(year, 1, 1, tzinfo=tz)
           end = datetime.datetime(year + 1, 1, 1, tzinfo=tz)
-          pct = (now - start).total_seconds() / (end - start).total_seconds() * 100
+          pct_float = (now - start).total_seconds() / (end - start).total_seconds() * 100
+          pct = int(pct_float)
+          # 12 月 31 日特殊处理为 100%
+          if now.month == 12 and now.day == 31:
+              pct = 100
+              pct_float = 100.0
+
+          last_file = pathlib.Path('.last_pct')
+          last_pct = -1
+          if last_file.exists():
+              try:
+                  last_pct = int(last_file.read_text().strip())
+              except:
+                  pass
+
+          if pct == last_pct:
+              print(f'今天 {pct}%，上次也是 {pct}%，不推送')
+              exit(0)
 
           length = 25
-          filled = round(pct * length / 100)
+          filled = round(pct_float * length / 100)
           bar = '█' * filled + '░' * (length - filled)
-
           days_passed = (now - start).days
           days_left = (end - start).days - days_passed
 
@@ -32,11 +57,11 @@ jobs:
               "msg_type": "interactive",
               "card": {
                   "header": {
-                      "title": {"tag": "plain_text", "content": f"🌱 {year} 年进度"},
+                      "title": {"tag": "plain_text", "content": f"🌱 {year} 年进度 · {pct}%"},
                       "template": "green"
                   },
                   "elements": [
-                      {"tag": "div", "text": {"tag": "lark_md", "content": f"`{bar}` **{pct:.1f}%**"}},
+                      {"tag": "div", "text": {"tag": "lark_md", "content": f"`{bar}` **{pct}%**"}},
                       {"tag": "div", "text": {"tag": "lark_md", "content": f"📅 已过 {days_passed} 天 · 还剩 {days_left} 天"}}
                   ]
               }
@@ -49,4 +74,13 @@ jobs:
               headers={'Content-Type': 'application/json'}
           )
           print(urllib.request.urlopen(req).read().decode())
+
+          last_file.write_text(str(pct))
+          print(f'已推送 {pct}%')
           EOF
+
+      - name: save last percentage
+        uses: actions/cache/save@v4
+        with:
+          path: .last_pct
+          key: last-pct-${{ github.run_id }}
