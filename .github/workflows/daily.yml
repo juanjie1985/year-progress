@@ -20,29 +20,13 @@ jobs:
           start = datetime.datetime(year, 1, 1, tzinfo=tz)
           end = datetime.datetime(year + 1, 1, 1, tzinfo=tz)
           pct = (now - start).total_seconds() / (end - start).total_seconds() * 100
+
+          length = 25
+          filled = round(pct * length / 100)
+          bar = '█' * filled + '░' * (length - filled)
+
           days_passed = (now - start).days
           days_left = (end - start).days - days_passed
-
-          # ⬇️ 三件大事
-          goals = [
-              ("📄", "核心期刊论文",  0,  1),
-              ("✍️", "公众号文章",    3, 52),
-              ("📚", "塘主营读书",   13, 31),
-          ]
-
-          def bar(p, length=20):
-              filled = round(p * length / 100)
-              return '█' * filled + '░' * (length - filled)
-
-          lines = [f"`{bar(pct)}` **{pct:.1f}%**",
-                   f"📅 已过 {days_passed} 天 · 还剩 {days_left} 天"]
-
-          goal_lines = ["**📋 2026 三件大事**", ""]
-          for emoji, name, done, total in goals:
-              p = done / total * 100 if total else 0
-              goal_lines.append(f"{emoji} **{name}**：{done} / {total}")
-              goal_lines.append(f"`{bar(p)}` {p:.0f}%")
-              goal_lines.append("")
 
           card = {
               "msg_type": "interactive",
@@ -52,13 +36,8 @@ jobs:
                       "template": "green"
                   },
                   "elements": [
-                      {"tag": "div", "text": {"tag": "lark_md", "content": "\n".join(lines)}},
-                      {"tag": "hr"},
-                      {"tag": "div", "text": {"tag": "lark_md", "content": "\n".join(goal_lines)}},
-                      {"tag": "hr"},
-                      {"tag": "note", "elements": [
-                          {"tag": "plain_text", "content": "💛 我值得被自己温柔以待"}
-                      ]}
+                      {"tag": "div", "text": {"tag": "lark_md", "content": f"`{bar}` **{pct:.1f}%**"}},
+                      {"tag": "div", "text": {"tag": "lark_md", "content": f"📅 已过 {days_passed} 天 · 还剩 {days_left} 天"}}
                   ]
               }
           }
