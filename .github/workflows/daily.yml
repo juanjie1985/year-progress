@@ -2,7 +2,9 @@ name: daily
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *'
+    # UTC 时间，北京时间需要 +8
+    # 北京时间 8:00 / 13:00 / 18:00 / 23:00，一天 4 次
+    - cron: '0 0,5,10,15 * * *'
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -12,17 +14,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .last_pct
-          key: last-pct-${{ github.run_id }}
-          restore-keys: |
-            last-pct-
-
+          # 固定 key，所有运行共享同一份缓存
+          key: last-pct-v1
       - name: send to feishu if percentage changed
         env:
           WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
         run: |
           python3 << 'EOF'
           import datetime, urllib.request, json, os, pathlib
-
           tz = datetime.timezone(datetime.timedelta(hours=8))
           now = datetime.datetime.now(tz)
           year = now.year
@@ -30,7 +29,6 @@ jobs:
           end = datetime.datetime(year + 1, 1, 1, tzinfo=tz)
           pct_float = (now - start).total_seconds() / (end - start).total_seconds() * 100
           pct = int(pct_float)
-          # 12 月 31 日特殊处理为 100%
           if now.month == 12 and now.day == 31:
               pct = 100
               pct_float = 100.0
@@ -43,16 +41,23 @@ jobs:
               except:
                   pass
 
+          # 详细日志
+          print(f'==== 本次运行 ====')
+          print(f'北京时间: {now.strftime("%Y-%m-%d %H:%M:%S")}')
+          print(f'当前进度: {pct_float:.2f}% -> 整数 {pct}%')
+          print(f'上次推送: {last_pct}%')
+
           if pct == last_pct:
-              print(f'今天 {pct}%，上次也是 {pct}%，不推送')
+              print(f'>>> 进度未变化，跳过推送')
               exit(0)
+
+          print(f'>>> 进度从 {last_pct}% 变为 {pct}%，准备推送')
 
           length = 25
           filled = round(pct_float * length / 100)
           bar = '█' * filled + '░' * (length - filled)
           days_passed = (now - start).days
           days_left = (end - start).days - days_passed
-
           card = {
               "msg_type": "interactive",
               "card": {
@@ -66,21 +71,20 @@ jobs:
                   ]
               }
           }
-
-          payload = json.dumps(card).encode()
+          payload = json.dumps(card).encode('utf-8')
           req = urllib.request.Request(
               os.environ['WEBHOOK'],
               data=payload,
-              headers={'Content-Type': 'application/json'}
+              headers={'Content-Type': 'application/json; charset=utf-8'}
           )
-          print(urllib.request.urlopen(req).read().decode())
-
+          response = urllib.request.urlopen(req).read().decode()
+          print(f'飞书响应: {response}')
           last_file.write_text(str(pct))
-          print(f'已推送 {pct}%')
+          print(f'>>> 推送完成，已记录 {pct}%')
           EOF
-
       - name: save last percentage
+        if: always()
         uses: actions/cache/save@v4
         with:
           path: .last_pct
-          key: last-pct-${{ github.run_id }}
+          key: last-pct-v1
